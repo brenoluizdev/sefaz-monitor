@@ -3,7 +3,12 @@
 ; (gera installer\output\SefazMonitorSetup.exe)
 
 #define MyAppName "SEFAZ Monitor"
-#define MyAppVersion "1.0.0"
+; Sobrescrito no CI via "ISCC /DMyAppVersion=1.2.3 ..." a partir da tag git,
+; para acompanhar exatamente a versão embutida no binário (ver
+; internal/version). O valor abaixo só vale para builds locais manuais.
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0-dev"
+#endif
 #define MyAppPublisher "SEFAZ Monitor"
 #define MyAppExeName "SefazMonitor.exe"
 ; Identidade (AUMID) usada para registrar o atalho e para o app disparar
@@ -20,6 +25,11 @@ AppPublisher={#MyAppPublisher}
 ; público-alvo típico (departamentos fiscais/contábeis) muitas vezes usa
 ; máquinas corporativas sem direitos de admin local.
 PrivilegesRequired=lowest
+; Precisa ser IDÊNTICO ao nome do mutex criado pelo app (ver
+; internal/ui/singleinstance.go). Permite ao instalador detectar e fechar o
+; app em execução durante uma auto-atualização (/CLOSEAPPLICATIONS) e
+; reabri-lo depois (/RESTARTAPPLICATIONS).
+AppMutex=SefazMonitorAppMutex
 DefaultDirName={localappdata}\Programs\SefazMonitor
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes

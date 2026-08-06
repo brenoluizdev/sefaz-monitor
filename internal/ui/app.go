@@ -27,6 +27,11 @@ type App struct {
 // Run inicializa a aplicação e bloqueia executando o loop de mensagens do
 // Windows até que o usuário escolha "Sair" no menu da bandeja.
 func Run() error {
+	if !acquireSingleInstanceLock() {
+		walk.MsgBox(nil, "SEFAZ Monitor", "O SEFAZ Monitor já está em execução — veja o ícone na bandeja do sistema.", walk.MsgBoxIconInformation)
+		return nil
+	}
+
 	registerAppUserModelID()
 
 	a := &App{cfg: config.Load()}
@@ -46,6 +51,8 @@ func Run() error {
 
 	a.mon.Start()
 	defer a.mon.Stop()
+
+	a.startUpdateChecker()
 
 	if len(a.cfg.SelectedUFs) == 0 {
 		// Primeira execução: já abre a janela de configuração para o
@@ -86,6 +93,13 @@ func (a *App) setupTray() error {
 	checkAction.SetText("Verificar agora")
 	checkAction.Triggered().Attach(func() { go a.mon.CheckNow() })
 	if err := ni.ContextMenu().Actions().Add(checkAction); err != nil {
+		return err
+	}
+
+	updateAction := walk.NewAction()
+	updateAction.SetText("Verificar atualizações")
+	updateAction.Triggered().Attach(func() { go a.checkForUpdate(true) })
+	if err := ni.ContextMenu().Actions().Add(updateAction); err != nil {
 		return err
 	}
 

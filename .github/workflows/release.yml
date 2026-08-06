@@ -1,0 +1,65 @@
+name: Release
+
+# Publica um novo release sempre que uma tag "vX.Y.Z" é enviada ao repositório.
+# Builda o app com a versão embutida, gera o instalador (Inno Setup), calcula
+# o checksum SHA-256 do instalador e publica tudo como assets do release —
+# é exatamente o que internal/updater consulta para o auto-update do app.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extrair versão da tag
+        id: ver
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Configurar Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Buildar o executável
+        shell: bash
+        run: |
+          go build -ldflags "-H=windowsgui -X sefazmonitor/internal/version.Current=${{ steps.ver.outputs.version }}" -o SefazMonitor.exe .
+
+      - name: Instalar Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Gerar o instalador
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=${{ steps.ver.outputs.version }}" installer\sefaz-monitor.iss
+
+      - name: Calcular checksum SHA-256 do instalador
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 "installer\output\SefazMonitorSetup.exe").Hash.ToLower()
+          Set-Content -Path "installer\output\SefazMonitorSetup.exe.sha256" -Value $hash -NoNewline -Encoding ascii
+
+      - name: Publicar o release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.ver.outputs.tag }}" \
+            "installer/output/SefazMonitorSetup.exe" \
+            "installer/output/SefazMonitorSetup.exe.sha256" \
+            --title "${{ steps.ver.outputs.tag }}" \
+            --generate-notes
