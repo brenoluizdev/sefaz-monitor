@@ -58,8 +58,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.ver.outputs.tag }}" \
-            "installer/output/SefazMonitorSetup.exe" \
-            "installer/output/SefazMonitorSetup.exe.sha256" \
-            --title "${{ steps.ver.outputs.tag }}" \
-            --generate-notes
+          tag="${{ steps.ver.outputs.tag }}"
+          # Idempotente: se o release já existe (ex.: um retry, ou uma
+          # publicação manual de ponte como aconteceu na v1.1.0 durante uma
+          # instabilidade do GitHub Actions), atualiza os assets em vez de
+          # falhar.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" \
+              "installer/output/SefazMonitorSetup.exe" \
+              "installer/output/SefazMonitorSetup.exe.sha256" \
+              --clobber
+          else
+            gh release create "$tag" \
+              "installer/output/SefazMonitorSetup.exe" \
+              "installer/output/SefazMonitorSetup.exe.sha256" \
+              --title "$tag" \
+              --generate-notes
+          fi
