@@ -9,19 +9,25 @@ import (
 	"path/filepath"
 )
 
+// IntervalFloorSeconds é o menor intervalo aceito entre verificações. Existe
+// para evitar bater no portal público da NFe com mais frequência do que
+// qualquer sistema automatizado deveria (risco de bloqueio por WAF), mas
+// permite ir bem mais rápido que o padrão para quem quiser.
+const IntervalFloorSeconds = 15
+
 // Config é o estado configurável pelo usuário, salvo em disco.
 type Config struct {
 	SelectedUFs     []string `json:"selectedUFs"`
-	IntervalMinutes int      `json:"intervalMinutes"`
+	IntervalSeconds int      `json:"intervalSeconds"`
 }
 
 // Default retorna a configuração inicial usada quando não há nada salvo
-// ainda: nenhuma UF selecionada, intervalo de 10 minutos (para não
-// sobrecarregar o portal da NFe).
+// ainda: nenhuma UF selecionada, intervalo de 10 minutos (razoável para não
+// sobrecarregar o portal da NFe, mas ajustável nas configurações).
 func Default() Config {
 	return Config{
 		SelectedUFs:     nil,
-		IntervalMinutes: 10,
+		IntervalSeconds: 600,
 	}
 }
 
@@ -67,8 +73,8 @@ func Load() Config {
 	if err := json.Unmarshal(b, &cfg); err != nil {
 		return Default()
 	}
-	if cfg.IntervalMinutes < 5 {
-		cfg.IntervalMinutes = 5
+	if cfg.IntervalSeconds < IntervalFloorSeconds {
+		cfg.IntervalSeconds = IntervalFloorSeconds
 	}
 	return cfg
 }

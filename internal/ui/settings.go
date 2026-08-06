@@ -29,7 +29,7 @@ func (a *App) buildSettingsWindow() error {
 				Layout: HBox{},
 				Children: []Widget{
 					Label{Text: "Verificar a cada:"},
-					NumberEdit{AssignTo: &intervalEdit, MinValue: 5, MaxValue: 120, Value: float64(a.cfg.IntervalMinutes), Suffix: " min"},
+					NumberEdit{AssignTo: &intervalEdit, MinValue: float64(config.IntervalFloorSeconds), MaxValue: 3600, Value: float64(a.cfg.IntervalSeconds), Suffix: " segundos"},
 					HSpacer{},
 				},
 			},
@@ -103,7 +103,7 @@ func (a *App) openSettings() {
 
 func (a *App) saveFromSettings(intervalEdit *walk.NumberEdit) {
 	a.cfg.SelectedUFs = a.model.selectedCodes()
-	a.cfg.IntervalMinutes = int(intervalEdit.Value())
+	a.cfg.IntervalSeconds = int(intervalEdit.Value())
 
 	if err := config.Save(a.cfg); err != nil {
 		walk.MsgBox(a.settingsWin, "SEFAZ Monitor", "Falha ao salvar configuração: "+err.Error(), walk.MsgBoxIconError)

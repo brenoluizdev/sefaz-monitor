@@ -98,8 +98,9 @@ type Monitor struct {
 	onTransition func(old, new UFState)
 	onUpdate     func()
 
-	stopCh  chan struct{}
-	running bool
+	stopCh    chan struct{}
+	restartCh chan struct{}
+	running   bool
 }
 
 // New cria um Monitor. onTransition é chamado sempre que o Status de uma UF
@@ -111,15 +112,24 @@ func New(onTransition func(old, new UFState), onUpdate func()) *Monitor {
 		states:       make(map[string]UFState),
 		onTransition: onTransition,
 		onUpdate:     onUpdate,
+		restartCh:    make(chan struct{}, 1),
 	}
 }
 
 // SetConfig atualiza a configuração (UFs monitoradas e intervalo). Pode ser
-// chamado com o monitor já rodando.
+// chamado com o monitor já rodando — nesse caso, a espera do ciclo atual é
+// interrompida imediatamente para já passar a usar o novo intervalo, em vez
+// de só aplicá-lo depois que a espera antiga (potencialmente bem mais longa)
+// terminar sozinha.
 func (m *Monitor) SetConfig(cfg config.Config) {
 	m.mu.Lock()
 	m.cfg = cfg
 	m.mu.Unlock()
+
+	select {
+	case m.restartCh <- struct{}{}:
+	default:
+	}
 }
 
 // Start inicia o loop de polling em background. Idempotente.
@@ -154,15 +164,20 @@ func (m *Monitor) loop(stop chan struct{}) {
 
 	for {
 		m.mu.Lock()
-		interval := time.Duration(m.cfg.IntervalMinutes) * time.Minute
+		interval := time.Duration(m.cfg.IntervalSeconds) * time.Second
 		m.mu.Unlock()
 		if interval <= 0 {
-			interval = 10 * time.Minute
+			interval = time.Duration(config.Default().IntervalSeconds) * time.Second
 		}
 
 		select {
 		case <-stop:
 			return
+		case <-m.restartCh:
+			// Configuração mudou (ex.: novo intervalo salvo nas
+			// configurações): recomeça a espera já com o valor atual, em vez
+			// de terminar a espera antiga primeiro.
+			continue
 		case <-time.After(interval):
 			m.CheckNow()
 		}
