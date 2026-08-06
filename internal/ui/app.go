@@ -5,6 +5,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/lxn/walk"
 
@@ -22,6 +23,8 @@ type App struct {
 
 	settingsWin *walk.MainWindow
 	model       *ufTableModel
+
+	statePath string // onde o último status conhecido de cada UF é persistido; vazio se não foi possível determinar
 }
 
 // Run inicializa a aplicação e bloqueia executando o loop de mensagens do
@@ -44,6 +47,11 @@ func Run() error {
 
 	a.mon = monitor.New(a.onTransition, a.onUpdate)
 	a.mon.SetConfig(a.cfg)
+
+	if dir, err := config.Dir(); err == nil {
+		a.statePath = filepath.Join(dir, "states.json")
+		a.mon.Seed(monitor.LoadStates(a.statePath))
+	}
 
 	if err := a.setupTray(); err != nil {
 		return fmt.Errorf("configurar bandeja: %w", err)
@@ -165,9 +173,15 @@ func (a *App) onTransition(old, new monitor.UFState) {
 // onUpdate é chamado ao final de cada ciclo completo de verificação, para
 // atualizar a tabela da janela de configurações (se estiver aberta).
 func (a *App) onUpdate() {
+	states := a.mon.States()
+
 	a.mw.Synchronize(func() {
 		if a.model != nil {
-			a.model.applyStates(a.mon.States())
+			a.model.applyStates(states)
 		}
 	})
+
+	if a.statePath != "" {
+		go monitor.SaveStates(a.statePath, states)
+	}
 }
