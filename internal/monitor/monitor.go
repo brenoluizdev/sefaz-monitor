@@ -38,7 +38,17 @@ func (s Status) String() string {
 	}
 }
 
-const fetchTimeout = 20 * time.Second
+const (
+	fetchTimeout = 20 * time.Second
+
+	// maxBackoffInterval é o teto da espera quando as consultas ao portal da
+	// NFe estão falhando repetidamente (seja instabilidade real, seja
+	// bloqueio por excesso de requisições). Sem isso, um intervalo agressivo
+	// configurado pelo usuário (ex.: 30s) continuaria martelando o servidor
+	// durante um problema em vez de recuar.
+	maxBackoffInterval = 30 * time.Minute
+	maxBackoffShift     = 6 // 2^6 = 64x o intervalo configurado, no máximo
+)
 
 // UFState é o snapshot de estado mais recente de uma UF monitorada.
 type UFState struct {
@@ -91,9 +101,10 @@ func classify(snap scraper.Snapshot, fetchErr error, u ufs.UF) (Status, string) 
 // Monitor executa o polling periódico e mantém o último estado conhecido de
 // cada UF configurada.
 type Monitor struct {
-	mu     sync.Mutex
-	cfg    config.Config
-	states map[string]UFState
+	mu                  sync.Mutex
+	cfg                 config.Config
+	states              map[string]UFState
+	consecutiveFailures int
 
 	onTransition func(old, new UFState)
 	onUpdate     func()
@@ -165,10 +176,12 @@ func (m *Monitor) loop(stop chan struct{}) {
 	for {
 		m.mu.Lock()
 		interval := time.Duration(m.cfg.IntervalSeconds) * time.Second
+		failures := m.consecutiveFailures
 		m.mu.Unlock()
 		if interval <= 0 {
 			interval = time.Duration(config.Default().IntervalSeconds) * time.Second
 		}
+		interval = backoff(interval, failures)
 
 		select {
 		case <-stop:
@@ -182,6 +195,24 @@ func (m *Monitor) loop(stop chan struct{}) {
 			m.CheckNow()
 		}
 	}
+}
+
+// backoff aplica um recuo exponencial (dobrando por falha consecutiva, até
+// 2^maxBackoffShift) sobre o intervalo configurado, limitado a
+// maxBackoffInterval. Com zero falhas, devolve o intervalo original.
+func backoff(interval time.Duration, consecutiveFailures int) time.Duration {
+	if consecutiveFailures <= 0 {
+		return interval
+	}
+	shift := consecutiveFailures
+	if shift > maxBackoffShift {
+		shift = maxBackoffShift
+	}
+	backed := interval << shift
+	if backed > maxBackoffInterval || backed <= 0 {
+		return maxBackoffInterval
+	}
+	return backed
 }
 
 // CheckNow dispara imediatamente um ciclo de verificação de todas as UFs
@@ -201,6 +232,14 @@ func (m *Monitor) CheckNow() {
 	}
 
 	snap, err := scraper.Fetch(fetchTimeout)
+
+	m.mu.Lock()
+	if err != nil {
+		m.consecutiveFailures++
+	} else {
+		m.consecutiveFailures = 0
+	}
+	m.mu.Unlock()
 
 	now := time.Now()
 	for _, code := range codes {
